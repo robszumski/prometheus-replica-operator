@@ -1,0 +1,4 @@
+apiVersion: "prometheus.robszumski.com/v1alpha1"
+kind: "PrometheusReplica"
+metadata:
+  name: "example"
