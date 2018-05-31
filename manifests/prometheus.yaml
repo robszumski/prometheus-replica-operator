@@ -1,0 +1,166 @@
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: prometheus
+  labels:
+    app: prometheus
+    thanos-peer: "true"
+spec:
+  serviceName: "prometheus"
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prometheus
+      thanos-peer: "true"
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        thanos-peer: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10902"
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - prometheus
+            topologyKey: kubernetes.io/hostname
+      containers:
+      - name: prometheus
+        image: quay.io/prometheus/prometheus:v2.0.0
+        args:
+        - "--storage.tsdb.retention=24h"
+        - "--config.file=/etc/prometheus-shared/prometheus.yml"
+        - "--storage.tsdb.path=/var/prometheus"
+        - "--storage.tsdb.min-block-duration=2m"
+        - "--storage.tsdb.max-block-duration=2m"
+        - "--web.enable-lifecycle"
+        ports:
+        - name: http
+          containerPort: 9090
+        volumeMounts:
+        - name: config-shared
+          mountPath: /etc/prometheus-shared
+        - name: data
+          mountPath: /var/prometheus
+      - name: thanos-sidecar
+        image: improbable/thanos:master
+        args:
+        - "sidecar"
+        - "--log.level=debug"
+        - "--tsdb.path=/var/prometheus"
+        - "--prometheus.url=http://127.0.0.1:9090"
+        - "--cluster.peers=thanos-peers.default.svc.cluster.local:10900"
+        - "--reloader.config-file=/etc/prometheus/prometheus.yml.tmpl"
+        - "--reloader.config-envsubst-file=/etc/prometheus-shared/prometheus.yml"
+        - "--s3.signature-version2"
+        env:
+        - name: S3_BUCKET
+          value: temperature-storage
+        - name: S3_ENDPOINT
+          value: s3.us-east-1.amazonaws.com
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: s3-bucket
+              key: s3_access_key
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: s3-bucket
+              key: s3_secret_key
+        ports:
+        - name: http
+          containerPort: 10902
+        - name: grpc
+          containerPort: 10901
+        - name: cluster
+          containerPort: 10900
+        volumeMounts:
+        - name: data
+          mountPath: /var/prometheus
+        - name: config-shared
+          mountPath: /etc/prometheus-shared
+        - name: config
+          mountPath: /etc/prometheus
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: config-shared
+        emptyDir: {}
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml.tmpl: |-
+    global:
+      evaluation_interval: 10s
+      scrape_interval: 10s
+      external_labels:
+        region: us-west-1
+        replica: '$(HOSTNAME)'
+
+    scrape_configs:
+    - job_name: 'raspeberry-pi'
+      dns_sd_configs:
+      - refresh_interval: 15s
+        names:
+        - raspberry-pi.thanos.svc.cluster.local
+      relabel_configs:
+        # Change default port we get from DNS (0) to expected port ({your_pod_port})
+      - source_labels: [__address__]
+        action: replace
+        target_label: __address__
+        regex: '([^:]+)(?::\d+)'
+        replacement: "$1:30000"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: prometheus
+  name: prometheus
+spec:
+  externalTrafficPolicy: Cluster
+  ports:
+  - port: 9090
+    protocol: TCP
+    targetPort: 9090
+    name: http-prometheus
+  - port: 10902
+    protocol: TCP
+    targetPort: http
+    name: http-sidecar-metrics
+  selector:
+    app: prometheus
+  sessionAffinity: None
+  type: NodePort
+status:
+  loadBalancer: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: thanos-peers
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: cluster
+    port: 10900
+    targetPort: cluster
+  selector:
+    # Useful endpoint for gathering all thanos components for common gossip cluster.
+    thanos-peer: "true"

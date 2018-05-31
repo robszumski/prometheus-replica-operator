@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: example
+  labels:
+    k8s-app: prometheus
+    app: temperature
+spec:
+  endpoints:
+    - interval: 30s
+      port: web
+  namespaceSelector:
+    matchNames:
+      - temperature
+  selector:
+    matchLabels:
+      app: temperature
