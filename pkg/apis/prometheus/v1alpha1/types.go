@@ -30,21 +30,21 @@ type PrometheusReplicaSpec struct {
 	HighlyAvailable bool `json:"highlyAvailable"`
 	BaseDomain string    `json:"baseDomain"`
 	BucketSecret string  `json:"bucketSecret"`
-	Metrics string       PrometheusMetricsSpec `json:"metrics"`
+	Metrics              PrometheusMetricsSpec `json:"metrics"`
 }
 
-type PrometheusMetricSpec struct {
+type PrometheusMetricsSpec struct {
 	// Size is the size of the memcached deployment
-	Retention string   `json:"retention"`
-	BlockDuration bool `json:"blockDuration"`
+	Retention string     `json:"retention"`
+	BlockDuration string `json:"blockDuration"`
 }
 
 // Status
 
 type PrometheusReplicaStatus struct {
 	Phase string  `json:"phase"`
-	Ouput         PrometheusReplicaStatus `json:"output,omitempty"`
-	Local         PrometheusReplicaStatus `json:"local,omitempty"`
+	Ouput         PrometheusOutputStatus `json:"output,omitempty"`
+	Local         PrometheusLocalStatus `json:"local,omitempty"`
 }
 
 type PrometheusOutputStatus struct {
@@ -53,9 +53,9 @@ type PrometheusOutputStatus struct {
 }
 
 type PrometheusLocalStatus struct {
-	Stores string       `json:"grafana"`
-	Prometheuses string `json:"prometheuses"`
-	Queries string      `json:"queries"`
+	Stores []string       `json:"grafana"`
+	Prometheuses []string `json:"prometheuses"`
+	Queries []string      `json:"queries"`
 }
 
 // spec:
