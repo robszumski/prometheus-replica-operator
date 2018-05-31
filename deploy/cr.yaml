@@ -2,3 +2,11 @@ apiVersion: "prometheus.robszumski.com/v1alpha1"
 kind: "PrometheusReplica"
 metadata:
   name: "example"
+spec:
+  config: "test-config"
+  HighlyAvailable: true
+  baseDomain: "example.com"
+  metrics:
+    retention: 24h
+    blockDuration: 2m
+  bucketSecret: "test-secret"

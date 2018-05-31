@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-replica-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: prometheus-replica-operator
+  template:
+    metadata:
+      labels:
+        name: prometheus-replica-operator
+    spec:
+      containers:
+        - name: prometheus-replica-operator
+          image: quay.io/robszumski/prometheus-replica-operator:latest
+          command:
+          - prometheus-replica-operator
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace

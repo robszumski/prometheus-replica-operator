@@ -1,7 +1,7 @@
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1beta1
 metadata:
-  name: promethus-replica-operator
+  name: prometheus-replica-operator
 rules:
 - apiGroups:
   - prometheus.robszumski.com
@@ -36,11 +36,11 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1beta1
 metadata:
-  name: default-account-promethus-replica-operator
+  name: default-account-prometheus-replica-operator
 subjects:
 - kind: ServiceAccount
   name: default
 roleRef:
   kind: Role
-  name: promethus-replica-operator
+  name: prometheus-replica-operator
   apiGroup: rbac.authorization.k8s.io

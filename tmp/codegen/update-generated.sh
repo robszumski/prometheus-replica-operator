@@ -4,7 +4,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-DOCKER_REPO_ROOT="/go/src/github.com/robszumski/promethus-replica-operator"
+DOCKER_REPO_ROOT="/go/src/github.com/robszumski/prometheus-replica-operator"
 IMAGE=${IMAGE:-"gcr.io/coreos-k8s-scale-testing/codegen:1.9.3"}
 
 docker run --rm \
@@ -13,8 +13,8 @@ docker run --rm \
   "$IMAGE" \
   "/go/src/k8s.io/code-generator/generate-groups.sh"  \
   "deepcopy" \
-  "github.com/robszumski/promethus-replica-operator/pkg/generated" \
-  "github.com/robszumski/promethus-replica-operator/pkg/apis" \
+  "github.com/robszumski/prometheus-replica-operator/pkg/generated" \
+  "github.com/robszumski/prometheus-replica-operator/pkg/apis" \
   "prometheus:v1alpha1" \
   --go-header-file "./tmp/codegen/boilerplate.go.txt" \
   $@
