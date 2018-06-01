@@ -3,10 +3,10 @@ kind: "PrometheusReplica"
 metadata:
   name: "example"
 spec:
-  config: "test-config"
-  HighlyAvailable: true
+  configMap: prometheus-config
+  highlyAvailable: true
   baseDomain: "example.com"
   metrics:
     retention: 24h
     blockDuration: 2m
-  bucketSecret: "test-secret"
+  bucketSecret: s3-bucket
