@@ -25,8 +25,7 @@ type PrometheusReplica struct {
 // Spec
 
 type PrometheusReplicaSpec struct {
-	// Size is the size of the memcached deployment
-	Size string          `json:"configMap"`
+	ConfigMap string          `json:"configMap"`
 	HighlyAvailable bool `json:"highlyAvailable"`
 	BaseDomain string    `json:"baseDomain"`
 	BucketSecret string  `json:"bucketSecret"`
@@ -34,7 +33,6 @@ type PrometheusReplicaSpec struct {
 }
 
 type PrometheusMetricsSpec struct {
-	// Size is the size of the memcached deployment
 	Retention string     `json:"retention"`
 	BlockDuration string `json:"blockDuration"`
 }

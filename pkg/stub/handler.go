@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	//"k8s.io/apimachinery/pkg/labels"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func NewHandler() sdk.Handler {
@@ -46,12 +47,47 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 			return fmt.Errorf("failed to create Prometheus StatefulSet: %v", err)
 		}
 
-		// // Create the Prometheus ConfigMap if it doesn't exist
-		// cmProm := configmapSetForPrometheus(PrometheusReplica)
-		// err := sdk.Create(cmProm)
-		// if err != nil && !apierrors.IsAlreadyExists(err) {
-		// 	return fmt.Errorf("failed to create Prometheus ConfigMap: %v", err)
-		// }
+		//Create the Prometheus Service if it doesn't exist
+		svcProm := serviceForPrometheus(PrometheusReplica)
+		err = sdk.Create(svcProm)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create Prometheus Service: %v", err)
+		}
+
+		//Create the Thanos peers Service if it doesn't exist
+		svcThanosPeers := serviceForThanosPeers(PrometheusReplica)
+		err = sdk.Create(svcThanosPeers)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create Thanos peers Service: %v", err)
+		}
+
+		//Create the Thanos store StatefulSet if it doesn't exist
+		ssThanosStore := statefulSetForThanosStore(PrometheusReplica)
+		err = sdk.Create(ssThanosStore)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create Thanos query StatefulSet: %v", err)
+		}
+
+		//Create the Thanos store Service if it doesn't exist
+		svcThanosStore := serviceForThanosStore(PrometheusReplica)
+		err = sdk.Create(svcThanosStore)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create Thanos store Service: %v", err)
+		}
+
+		//Create the Thanos query Deployment if it doesn't exist
+		depThanosQuery := deploymentForThanosQuery(PrometheusReplica)
+		err = sdk.Create(depThanosQuery)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create Thanos query Deployment: %v", err)
+		}
+
+		//Create the Thanos query Service if it doesn't exist
+		svcThanosQuery := serviceForThanosQuery(PrometheusReplica)
+		err = sdk.Create(svcThanosQuery)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to create Thanos query Service: %v", err)
+		}
 
 		// UPDATE
 		// Ensure the deployment size is the same as the spec
@@ -90,23 +126,28 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 
 // statefulSetForPrometheus returns a PrometheusReplica StatefulSet object
 func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSet {
+	//TODO: do we really need a function for this?
 	ls := labelsForPrometheusReplica(pr.Name)
 	retention := pr.Spec.Metrics.Retention
 	blockDuration := pr.Spec.Metrics.BlockDuration
+	configMapName := pr.Spec.ConfigMap
+	secretName := pr.Spec.BucketSecret
 
 	logrus.Infof("Creating Prometheus StatefulSet for %s", pr.Name)
 
 	var replicas int32
 	if pr.Spec.HighlyAvailable {
 	    replicas = 2
-	    logrus.Infof("StatefulSet: Translating HighlyAvailable to %d replicas", replicas)
+	    logrus.Infof("  StatefulSet: Translating HighlyAvailable to %d replicas", replicas)
 	} else {
 		replicas = 1
-		logrus.Infof("StatefulSet: No HA. Starting %t replica", replicas)
+		logrus.Infof("  StatefulSet: No HA. Starting %t replica", replicas)
 	}
 
-	logrus.Infof("StatefulSet: Setting overall metrics retention to %s", retention)
-	logrus.Infof("StatefulSet: Setting duration until upload to storage bucket to %s", blockDuration)
+	logrus.Infof("  StatefulSet: Setting overall metrics retention to %s", retention)
+	logrus.Infof("  StatefulSet: Setting duration until upload to storage bucket to %s", blockDuration)
+	logrus.Infof("  StatefulSet: Using Prometheus config from ConfigMap %s", configMapName)
+	logrus.Infof("  StatefulSet: Using bucket parameters from Secret %s", secretName)
 
 	dep := &appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
@@ -114,7 +155,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 			Kind:       "StatefulSet",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pr.Name,
+			Name:      fmt.Sprintf("%s-prometheus", pr.Name),
 			Namespace: pr.Namespace,
 			Labels:    ls,
 		},
@@ -185,7 +226,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 							Name: "S3_BUCKET",
 							ValueFrom: &v1.EnvVarSource{
 								SecretKeyRef: &v1.SecretKeySelector{
-									LocalObjectReference: v1.LocalObjectReference{Name: "s3-bucket"},
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
 									Key:  "s3_bucket",
 								},
 							},
@@ -193,7 +234,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 							Name: "S3_ENDPOINT",
 							ValueFrom: &v1.EnvVarSource{
 								SecretKeyRef: &v1.SecretKeySelector{
-									LocalObjectReference: v1.LocalObjectReference{Name: "s3-bucket"},
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
 									Key:  "s3_endpoint",
 								},
 							},
@@ -201,7 +242,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 							Name: "S3_ACCESS_KEY",
 							ValueFrom: &v1.EnvVarSource{
 								SecretKeyRef: &v1.SecretKeySelector{
-									LocalObjectReference: v1.LocalObjectReference{Name: "s3-bucket"},
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
 									Key:  "s3_access_key",
 								},
 							},
@@ -209,7 +250,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 							Name: "S3_SECRET_KEY",
 							ValueFrom: &v1.EnvVarSource{
 								SecretKeyRef: &v1.SecretKeySelector{
-									LocalObjectReference: v1.LocalObjectReference{Name: "s3-bucket"},
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
 									Key:  "s3_secret_key",
 								},
 							},
@@ -248,8 +289,8 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 						{
 							Name: "config",
 							VolumeSource: v1.VolumeSource{
-								Secret: &v1.SecretVolumeSource{
-									SecretName: "prometheus-config",
+								ConfigMap: &v1.ConfigMapVolumeSource{
+									LocalObjectReference: v1.LocalObjectReference{Name:configMapName},
 								},
 							},
 						},
@@ -262,10 +303,344 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 	return dep
 }
 
+// serviceForPrometheus returns a PrometheusReplica service object
+func serviceForPrometheus(pr *v1alpha1.PrometheusReplica) *v1.Service {
+	//TODO: do we really need a function for this?
+	ls := labelsForPrometheusReplica(pr.Name)
+
+	logrus.Infof("Creating Prometheus service for %s", pr.Name)
+
+	svc := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Service",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-prometheus", pr.Name),
+			Namespace: pr.Namespace,
+			Labels:    ls,
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Name: "http-prometheus",
+				Port: 9090,
+				TargetPort: intstr.IntOrString{
+					Type:   intstr.Int,
+					IntVal: 9090,
+				},
+			},{
+				Name: "http-sidecar-metrics",
+				Port: 10902,
+				TargetPort: intstr.IntOrString{
+					Type:   intstr.String,
+					StrVal: "http",
+				},
+			}},
+			Selector: map[string]string{"app": "prometheus"},
+			SessionAffinity: "None",
+			Type: "ClusterIP",
+		},
+	}
+	addOwnerRefToObject(svc, asOwner(pr))
+	return svc
+}
+
+// serviceForThanosPeers returns a PrometheusReplica service object
+func serviceForThanosPeers(pr *v1alpha1.PrometheusReplica) *v1.Service {
+	//TODO: do we really need a function for this?
+	ls := labelsForThanosPeers(pr.Name)
+
+	logrus.Infof("Creating Thanos peers service for %s", pr.Name)
+
+	svc := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Service",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-thanos-peers", pr.Name),
+			Namespace: pr.Namespace,
+			Labels:    ls,
+		},
+		Spec: v1.ServiceSpec{
+			ClusterIP: "None",
+			Ports: []v1.ServicePort{{
+				Name: "cluster",
+				Port: 10900,
+				TargetPort: intstr.IntOrString{
+					Type:   intstr.String,
+					StrVal: "cluster",
+				},
+			}},
+			Selector: ls,
+			SessionAffinity: "None",
+			Type: "ClusterIP",
+		},
+	}
+	addOwnerRefToObject(svc, asOwner(pr))
+	return svc
+}
+
+// statefulSetForThanosStore returns a PrometheusReplica StatefulSet object
+func statefulSetForThanosStore(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSet {
+	ls := labelsForThanosStore(pr.Name)
+	secretName := pr.Spec.BucketSecret
+	var replicas int32
+	replicas = 1
+
+	logrus.Infof("Creating Thanos store StatefulSet for %s", pr.Name)
+	logrus.Infof("  StatefulSet: Using bucket parameters from Secret %s", secretName)
+
+	ss := &appsv1.StatefulSet{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "StatefulSet",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-thanos-store", pr.Name),
+			Namespace: pr.Namespace,
+			Labels:    ls,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: fmt.Sprintf("%s-thanos-store", pr.Name),
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: ls,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: ls,
+					Annotations: map[string]string{"prometheus.io/scrape": "true","prometheus.io/port": "10902"},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{{
+						Image:   "improbable/thanos:master",
+						Name:    "thanos-store",
+						Args: []string{
+							"store",
+							"--log.level=debug",
+							"--tsdb.path=/var/thanos/store",
+							fmt.Sprintf("--cluster.peers=%s-thanos-peers.%s.svc.cluster.local:10900", pr.Name, pr.Namespace),
+						},
+						Env: []v1.EnvVar{{
+							Name: "S3_BUCKET",
+							ValueFrom: &v1.EnvVarSource{
+								SecretKeyRef: &v1.SecretKeySelector{
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
+									Key:  "s3_bucket",
+								},
+							},
+						},{
+							Name: "S3_ENDPOINT",
+							ValueFrom: &v1.EnvVarSource{
+								SecretKeyRef: &v1.SecretKeySelector{
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
+									Key:  "s3_endpoint",
+								},
+							},
+						},{
+							Name: "S3_ACCESS_KEY",
+							ValueFrom: &v1.EnvVarSource{
+								SecretKeyRef: &v1.SecretKeySelector{
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
+									Key:  "s3_access_key",
+								},
+							},
+						},{
+							Name: "S3_SECRET_KEY",
+							ValueFrom: &v1.EnvVarSource{
+								SecretKeyRef: &v1.SecretKeySelector{
+									LocalObjectReference: v1.LocalObjectReference{Name: secretName},
+									Key:  "s3_secret_key",
+								},
+							},
+						}},
+						Ports: []v1.ContainerPort{{
+							ContainerPort: 10902,
+							Name:          "http",
+						},{
+							ContainerPort: 10901,
+							Name:          "grpc",
+						},{
+							ContainerPort: 10900,
+							Name:          "cluster",
+						}},
+						VolumeMounts: []v1.VolumeMount{{
+							MountPath: "/var/thanos/store", Name: "data",
+						}},
+					}},
+					Volumes: []v1.Volume{{
+						Name: "data",
+						VolumeSource: v1.VolumeSource{
+							EmptyDir: &v1.EmptyDirVolumeSource{},
+						},
+					}},
+				},
+			},
+		},
+	}
+	addOwnerRefToObject(ss, asOwner(pr))
+	return ss
+}
+
+// serviceForThanosStore returns a PrometheusReplica service object
+func serviceForThanosStore(pr *v1alpha1.PrometheusReplica) *v1.Service {
+	ls := labelsForThanosStore(pr.Name)
+
+	logrus.Infof("Creating Thanos store service for %s", pr.Name)
+
+	svc := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Service",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-thanos-store", pr.Name),
+			Namespace: pr.Namespace,
+			//TODO: audit labels
+			Labels:    ls,
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Name: "http-store",
+				Port: 9090,
+				TargetPort: intstr.IntOrString{	
+					Type:   intstr.String,
+					StrVal: "http",
+				},
+			}},
+			Selector: ls,
+			SessionAffinity: "None",
+			Type: "ClusterIP",
+		},
+	}
+	addOwnerRefToObject(svc, asOwner(pr))
+	return svc
+}
+
+// deploymentForThanosQuery returns a PrometheusReplica Deployment object
+func deploymentForThanosQuery(pr *v1alpha1.PrometheusReplica) *appsv1.Deployment {
+	ls := labelsForThanosQuery(pr.Name)
+	secretName := pr.Spec.BucketSecret
+
+	logrus.Infof("Creating Thanos query Deployment for %s", pr.Name)
+	logrus.Infof("  Deployment: Using bucket parameters from Secret %s", secretName)
+
+	var replicas int32
+	if pr.Spec.HighlyAvailable {
+	    replicas = 2
+	    logrus.Infof("  Deployment: Translating HighlyAvailable to %d replicas", replicas)
+	} else {
+		replicas = 1
+		logrus.Infof("  Deployment: No HA. Starting %t replica", replicas)
+	}
+
+	dep := &appsv1.Deployment{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "apps/v1",
+			Kind:       "Deployment",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-thanos-query", pr.Name),
+			Namespace: pr.Namespace,
+			Labels:    ls,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &replicas,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: ls,
+			},
+			Template: v1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: ls,
+					Annotations: map[string]string{"prometheus.io/scrape": "true","prometheus.io/port": "10902"},
+				},
+				Spec: v1.PodSpec{
+					Containers: []v1.Container{{
+						Image:   "improbable/thanos:master",
+						Name:    "thanos-query",
+						Args: []string{
+							"query",
+							"--log.level=debug",
+							fmt.Sprintf("--cluster.peers=%s-thanos-peers.%s.svc.cluster.local:10900", pr.Name, pr.Namespace),
+							"--query.replica-label=replica",
+						},
+						Ports: []v1.ContainerPort{{
+							ContainerPort: 10902,
+							Name:          "http",
+						},{
+							ContainerPort: 10901,
+							Name:          "grpc",
+						},{
+							ContainerPort: 10900,
+							Name:          "cluster",
+						}},
+					}},
+				},
+			},
+		},
+	}
+	addOwnerRefToObject(dep, asOwner(pr))
+	return dep
+}
+
+// serviceForThanosStore returns a PrometheusReplica service object
+func serviceForThanosQuery(pr *v1alpha1.PrometheusReplica) *v1.Service {
+	ls := labelsForThanosQuery(pr.Name)
+
+	logrus.Infof("Creating Thanos query service for %s", pr.Name)
+
+	svc := &v1.Service{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Service",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      fmt.Sprintf("%s-thanos-query", pr.Name),
+			Namespace: pr.Namespace,
+			//TODO: audit labels
+			Labels:    ls,
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{{
+				Name: "http-query",
+				Port: 9090,
+				TargetPort: intstr.IntOrString{	
+					Type:   intstr.String,
+					StrVal: "http",
+				},
+			}},
+			Selector: ls,
+			SessionAffinity: "None",
+			Type: "ClusterIP",
+		},
+	}
+	addOwnerRefToObject(svc, asOwner(pr))
+	return svc
+}
+
 // labelsForPrometheusReplica returns the labels for selecting the resources
 // belonging to the given PrometheusReplica CR name.
 func labelsForPrometheusReplica(name string) map[string]string {
 	return map[string]string{"app": "prometheus", "PrometheusReplica_cr": name, "thanos-peer": "true"}
+}
+
+// labelsForThanosPeers returns the labels for selecting the resources
+// belonging to the given PrometheusReplica CR's Thanos peers
+func labelsForThanosPeers(name string) map[string]string {
+	return map[string]string{"PrometheusReplica_cr": name, "thanos-peer": "true"}
+}
+
+// labelsForThanosStores returns the labels for selecting the resources
+// belonging to the given PrometheusReplica CR's Thanos stores
+func labelsForThanosStore(name string) map[string]string {
+	return map[string]string{"app": "thanos-store", "PrometheusReplica_cr": name, "thanos-peer": "true"}
+}
+
+// labelsForThanosQuery returns the labels for selecting the resources
+// belonging to the given PrometheusReplica CR's Thanos queries
+func labelsForThanosQuery(name string) map[string]string {
+	return map[string]string{"app": "thanos-query", "PrometheusReplica_cr": name, "thanos-peer": "true"}
 }
 
 // addOwnerRefToObject appends the desired OwnerReference to the object
