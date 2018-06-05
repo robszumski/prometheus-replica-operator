@@ -41,7 +41,7 @@ type PrometheusMetricsSpec struct {
 
 type PrometheusReplicaStatus struct {
 	Phase string  `json:"phase"`
-	Ouput         PrometheusOutputStatus `json:"output,omitempty"`
+	Output         PrometheusOutputStatus `json:"output,omitempty"`
 	Local         PrometheusLocalStatus `json:"local,omitempty"`
 }
 
@@ -51,7 +51,7 @@ type PrometheusOutputStatus struct {
 }
 
 type PrometheusLocalStatus struct {
-	Stores []string       `json:"grafana"`
+	Stores []string       `json:"stores"`
 	Prometheuses []string `json:"prometheuses"`
 	Queries []string      `json:"queries"`
 }

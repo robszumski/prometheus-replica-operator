@@ -2,7 +2,7 @@ package stub
 
 import (
 	"fmt"
-	//"reflect"
+	"reflect"
 	"context"
 
 	v1alpha1 "github.com/robszumski/prometheus-replica-operator/pkg/apis/prometheus/v1alpha1"
@@ -12,7 +12,7 @@ import (
 	"k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	//"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/labels"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
@@ -37,7 +37,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 
 		// SANITY CHECK
 		logrus.Infof("Parsing PrometheusReplica %s in %s", PrometheusReplica.Name, PrometheusReplica.Namespace)
-
 
         // INSTALL
 		// Create the Prometheus StatefulSet if it doesn't exist
@@ -104,22 +103,66 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		// 	}
 		// }
 
+		// STATUS
 		// Update the PrometheusReplica status with the pod names
-		// podList := podList()
-		// labelSelector := labels.SelectorFromSet(labelsForPrometheusReplica(PrometheusReplica.Name)).String()
-		// listOps := &metav1.ListOptions{LabelSelector: labelSelector}
-		// err = sdk.List(PrometheusReplica.Namespace, podList, sdk.WithListOptions(listOps))
-		// if err != nil {
-		// 	return fmt.Errorf("failed to list pods: %v", err)
-		// }
-		// podNames := getPodNames(podList.Items)
-		// if !reflect.DeepEqual(podNames, PrometheusReplica.Status.Nodes) {
-		// 	PrometheusReplica.Status.Nodes = podNames
-		// 	err := sdk.Update(PrometheusReplica)
-		// 	if err != nil {
-		// 		return fmt.Errorf("failed to update PrometheusReplica status: %v", err)
-		// 	}
-		// }
+		podStatus := make(map[string][]string)
+		svcStatus := make(map[string][]string)
+		logrus.Infof("Updating PrometheusReplica status for %s", PrometheusReplica.Name)
+
+		// Define Pod label queries
+		filterLabelQueries := map[string]string{
+			"prometheuses": labels.SelectorFromSet(labelsForPrometheusPods(PrometheusReplica.Name)).String(),
+			"queries": labels.SelectorFromSet(labelsForThanosQuery(PrometheusReplica.Name)).String(),
+			"stores": labels.SelectorFromSet(labelsForThanosStore(PrometheusReplica.Name)).String(),
+		}
+
+		// Execute Pod label queries
+		podStatus, err = filterPodList(filterLabelQueries, PrometheusReplica.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to list pods for local status: %v", err)
+		}
+
+		// Define Service label queries
+		filterLabelQueries = map[string]string{
+			"grafana": labels.SelectorFromSet(labelsForGrafana(PrometheusReplica.Name)).String(),
+			"query": labels.SelectorFromSet(labelsForThanosQuery(PrometheusReplica.Name)).String(),
+		}
+
+		svcStatus, err = filterServiceList(filterLabelQueries, PrometheusReplica.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to list services for output status: %v", err)
+		}
+
+		//TODO: refactor when Ingresses are added
+		status := v1alpha1.PrometheusReplicaStatus{
+			//TODO: update after reading ready status
+			Phase: "creating",
+			Local: v1alpha1.PrometheusLocalStatus{
+				Prometheuses: podStatus["prometheuses"],
+				Stores: podStatus["stores"],
+				Queries: podStatus["queries"],
+			},
+			Output: v1alpha1.PrometheusOutputStatus{
+				Grafana: "not implemented yet",				
+				Query: fmt.Sprintf("%s.%s.svc.cluster.local", svcStatus["query"][0], PrometheusReplica.Namespace),
+			},
+		}
+
+		// Update local status if anything has changed
+		if !reflect.DeepEqual(status, PrometheusReplica.Status.Local) {
+
+			// Set local status
+			PrometheusReplica.Status = status
+
+			// Update CRD
+			err := sdk.Update(PrometheusReplica)
+			if err != nil {
+				return fmt.Errorf("failed to update PrometheusReplica status: %v", err)
+			}
+		} else {
+			logrus.Infof("figure out why this doesn't ever match!")
+		}
+
 	}
 	return nil
 }
@@ -127,7 +170,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 // statefulSetForPrometheus returns a PrometheusReplica StatefulSet object
 func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSet {
 	//TODO: do we really need a function for this?
-	ls := labelsForPrometheusReplica(pr.Name)
+	ls := labelsForPrometheusPods(pr.Name)
 	retention := pr.Spec.Metrics.Retention
 	blockDuration := pr.Spec.Metrics.BlockDuration
 	configMapName := pr.Spec.ConfigMap
@@ -306,7 +349,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 // serviceForPrometheus returns a PrometheusReplica service object
 func serviceForPrometheus(pr *v1alpha1.PrometheusReplica) *v1.Service {
 	//TODO: do we really need a function for this?
-	ls := labelsForPrometheusReplica(pr.Name)
+	ls := labelsForPrometheusPods(pr.Name)
 
 	logrus.Infof("Creating Prometheus service for %s", pr.Name)
 
@@ -622,6 +665,12 @@ func serviceForThanosQuery(pr *v1alpha1.PrometheusReplica) *v1.Service {
 // labelsForPrometheusReplica returns the labels for selecting the resources
 // belonging to the given PrometheusReplica CR name.
 func labelsForPrometheusReplica(name string) map[string]string {
+	return map[string]string{"PrometheusReplica_cr": name}
+}
+
+// labelsForPrometheusPods returns the labels for selecting the resources
+// belonging to the given PrometheusReplica Prometheus pods.
+func labelsForPrometheusPods(name string) map[string]string {
 	return map[string]string{"app": "prometheus", "PrometheusReplica_cr": name, "thanos-peer": "true"}
 }
 
@@ -643,9 +692,60 @@ func labelsForThanosQuery(name string) map[string]string {
 	return map[string]string{"app": "thanos-query", "PrometheusReplica_cr": name, "thanos-peer": "true"}
 }
 
+// labelsForGrafana returns the labels for selecting the resources
+// belonging to the given PrometheusReplica CR's Thanos queries
+func labelsForGrafana(name string) map[string]string {
+	//TODO: add CR when we deploy grafana     "PrometheusReplica_cr": name
+	return map[string]string{"app": "grafana"}
+}
+
 // addOwnerRefToObject appends the desired OwnerReference to the object
 func addOwnerRefToObject(obj metav1.Object, ownerRef metav1.OwnerReference) {
 	obj.SetOwnerReferences(append(obj.GetOwnerReferences(), ownerRef))
+}
+
+// filterPodList returns an array of Pod names that match a label query
+func filterPodList(labelQueries map[string]string, ns string) (map[string][]string, error) {
+	podNames := map[string][]string{}
+
+	for group, query := range labelQueries {
+		//TODO: set more debug levels
+		logrus.Infof("group: %s %s", group, query)
+
+		podList := podList()
+		listOps := &metav1.ListOptions{LabelSelector: query}
+		err := sdk.List(ns, podList, sdk.WithListOptions(listOps))
+		if err != nil {
+			return nil, fmt.Errorf("Failed to list pods to filter: %v", err)
+		}
+		podNames[group] = getPodNames(podList.Items)
+		//TODO: set more debug levels
+		logrus.Infof("names: %s", podNames[group])
+	}
+
+	return podNames, nil
+}
+
+// filterServiceList returns an array of Service names that match a label query
+func filterServiceList(labelQueries map[string]string, ns string) (map[string][]string, error) {
+	serviceNames := map[string][]string{}
+
+	for group, query := range labelQueries {
+		//TODO: set more debug levels
+		//logrus.Infof("group: %s %s", group, query)
+
+		serviceList := serviceList()
+		listOps := &metav1.ListOptions{LabelSelector: query}
+		err := sdk.List(ns, serviceList, sdk.WithListOptions(listOps))
+		if err != nil {
+			return nil, fmt.Errorf("Failed to list services to filter: %v", err)
+		}
+		serviceNames[group] = getServiceNames(serviceList.Items)
+		//TODO: set more debug levels
+		//logrus.Infof("names: %s", serviceNames[group])
+	}
+
+	return serviceNames, nil
 }
 
 // asOwner returns an OwnerReference set as the PrometheusReplica CR
@@ -677,4 +777,23 @@ func getPodNames(pods []v1.Pod) []string {
 		podNames = append(podNames, pod.Name)
 	}
 	return podNames
+}
+
+// serviceList returns a v1.PodList object
+func serviceList() *v1.ServiceList {
+	return &v1.ServiceList{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+	}
+}
+
+// getServiceNames returns the service names of the array of services passed in
+func getServiceNames(services []v1.Service) []string {
+	var serviceNames []string
+	for _, service := range services {
+		serviceNames = append(serviceNames, service.Name)
+	}
+	return serviceNames
 }
