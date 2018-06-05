@@ -80,4 +80,4 @@ spec:
   selector:
     app: thanos-store
   sessionAffinity: None
-  type: NodePort
+  type: ClusterIP

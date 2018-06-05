@@ -57,4 +57,4 @@ spec:
   selector:
     app: thanos-query
   sessionAffinity: None
-  type: NodePort
+  type: ClusterIP

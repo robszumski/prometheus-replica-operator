@@ -11,7 +11,7 @@ spec:
       port: web
   namespaceSelector:
     matchNames:
-      - temperature
+      - default
   selector:
     matchLabels:
       app: temperature

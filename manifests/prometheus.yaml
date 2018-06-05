@@ -145,10 +145,7 @@ spec:
   selector:
     app: prometheus
   sessionAffinity: None
-  type: NodePort
-status:
-  loadBalancer: {}
-
+  type: ClusterIP
 ---
 apiVersion: v1
 kind: Service
