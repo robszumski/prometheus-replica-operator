@@ -39,53 +39,57 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		logrus.Infof("Parsing PrometheusReplica %s in %s", PrometheusReplica.Name, PrometheusReplica.Namespace)
 
         // INSTALL
-		// Create the Prometheus StatefulSet if it doesn't exist
-		ssProm := statefulSetForPrometheus(PrometheusReplica)
-		err := sdk.Create(ssProm)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Prometheus StatefulSet: %v", err)
-		}
+        var err error
+        // If anything needs to be created or updated, just blindly recreate everything
+        if(PrometheusReplica.Status.Phase == "Install" || PrometheusReplica.Status.Phase == "Repair" || PrometheusReplica.Status.Phase == "Update") {
+			// Create the Prometheus StatefulSet if it doesn't exist
+			ssProm := statefulSetForPrometheus(PrometheusReplica)
+			err = sdk.Create(ssProm)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Prometheus StatefulSet: %v", err)
+			}
 
-		//Create the Prometheus Service if it doesn't exist
-		svcProm := serviceForPrometheus(PrometheusReplica)
-		err = sdk.Create(svcProm)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Prometheus Service: %v", err)
-		}
+			//Create the Prometheus Service if it doesn't exist
+			svcProm := serviceForPrometheus(PrometheusReplica)
+			err = sdk.Create(svcProm)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Prometheus Service: %v", err)
+			}
 
-		//Create the Thanos peers Service if it doesn't exist
-		svcThanosPeers := serviceForThanosPeers(PrometheusReplica)
-		err = sdk.Create(svcThanosPeers)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Thanos peers Service: %v", err)
-		}
+			//Create the Thanos peers Service if it doesn't exist
+			svcThanosPeers := serviceForThanosPeers(PrometheusReplica)
+			err = sdk.Create(svcThanosPeers)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos peers Service: %v", err)
+			}
 
-		//Create the Thanos store StatefulSet if it doesn't exist
-		ssThanosStore := statefulSetForThanosStore(PrometheusReplica)
-		err = sdk.Create(ssThanosStore)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Thanos query StatefulSet: %v", err)
-		}
+			//Create the Thanos store StatefulSet if it doesn't exist
+			ssThanosStore := statefulSetForThanosStore(PrometheusReplica)
+			err = sdk.Create(ssThanosStore)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos query StatefulSet: %v", err)
+			}
 
-		//Create the Thanos store Service if it doesn't exist
-		svcThanosStore := serviceForThanosStore(PrometheusReplica)
-		err = sdk.Create(svcThanosStore)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Thanos store Service: %v", err)
-		}
+			//Create the Thanos store Service if it doesn't exist
+			svcThanosStore := serviceForThanosStore(PrometheusReplica)
+			err = sdk.Create(svcThanosStore)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos store Service: %v", err)
+			}
 
-		//Create the Thanos query Deployment if it doesn't exist
-		depThanosQuery := deploymentForThanosQuery(PrometheusReplica)
-		err = sdk.Create(depThanosQuery)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Thanos query Deployment: %v", err)
-		}
+			//Create the Thanos query Deployment if it doesn't exist
+			depThanosQuery := deploymentForThanosQuery(PrometheusReplica)
+			err = sdk.Create(depThanosQuery)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos query Deployment: %v", err)
+			}
 
-		//Create the Thanos query Service if it doesn't exist
-		svcThanosQuery := serviceForThanosQuery(PrometheusReplica)
-		err = sdk.Create(svcThanosQuery)
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("failed to create Thanos query Service: %v", err)
+			//Create the Thanos query Service if it doesn't exist
+			svcThanosQuery := serviceForThanosQuery(PrometheusReplica)
+			err = sdk.Create(svcThanosQuery)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos query Service: %v", err)
+			}
 		}
 
 		// UPDATE
@@ -108,8 +112,15 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		podStatus := make(map[string][]string)
 		svcStatus := make(map[string][]string)
 		podPhases := make(map[string]map[string]string)
-		globalStatus := "Creating"
+		globalStatus := ""
+
 		logrus.Infof("Updating PrometheusReplica status for %s", PrometheusReplica.Name)
+
+		globalStatus = PrometheusReplica.Status.Phase
+		if(globalStatus == "") {
+			globalStatus = "Install"
+			logrus.Infof("Status of PrometheusReplica %s is now Install", PrometheusReplica.Name)
+		}
 
 		// Define Pod label queries
 		filterLabelQueries := map[string]string{
@@ -127,24 +138,22 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		for group, _ := range podStatus {
 			
 			for _, podName := range podStatus[group] {
-				//TODO: set more debug levels
-				logrus.Infof("  Group %s: Pod %s is %v", group, podName, podPhases[group][podName])
+				logrus.Debugf("  Group %s: Pod %s is %v", group, podName, podPhases[group][podName])
 				
 				// built list of unqiue phases
 				phases[podPhases[group][podName]] = true				
 			}
 
-			//TODO: set more debug levels
 			if _, ok := phases["Pending"]; ok {
-				logrus.Infof("  Group %s has at least one pod pending", group);
+				logrus.Debugf("  Group %s has at least one pod pending", group);
 			} else if _, ok := phases["Failed"]; ok {
-				logrus.Infof("  Group %s has at least one pod failed", group);
+				logrus.Debugf("  Group %s has at least one pod failed", group);
 			} else if _, ok := phases["Unknown"]; ok {
-				logrus.Infof("  Group %s has at least one pod unknown", group);
+				logrus.Debugf("  Group %s has at least one pod unknown", group);
 			} else if _, ok := phases["Running"]; ok {
-				logrus.Infof("  Group %s has at least one pod running", group);
+				logrus.Debugf("  Group %s has at least one pod running", group);
 			} else {
-				logrus.Infof("  Group %s has at least one pod in an unrecognized state: %s", group);
+				logrus.Debugf("  Group %s has at least one pod in an unrecognized state: %s", group);
 			}
 
 		}
@@ -167,7 +176,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 			queryLocation = fmt.Sprintf("%s.%s.svc.cluster.local", svcStatus["query"][0], PrometheusReplica.Namespace)
 		}
 		status := v1alpha1.PrometheusReplicaStatus{
-			//TODO: update after reading ready status
 			Phase: globalStatus,
 			Local: v1alpha1.PrometheusLocalStatus{
 				Prometheuses: podStatus["prometheuses"],
@@ -203,7 +211,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 				return fmt.Errorf("failed to update PrometheusReplica status: %v", err)
 			}
 		} else {
-			logrus.Infof("figure out why this doesn't ever match!")
+			logrus.Debugf("Status for PrometheusReplica %s did not change", PrometheusReplica.Name)
 		}
 
 	}
@@ -212,7 +220,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 
 // statefulSetForPrometheus returns a PrometheusReplica StatefulSet object
 func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSet {
-	//TODO: do we really need a function for this?
 	ls := labelsForPrometheusPods(pr.Name)
 	retention := pr.Spec.Metrics.Retention
 	blockDuration := pr.Spec.Metrics.BlockDuration
@@ -227,7 +234,7 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 	    logrus.Infof("  StatefulSet: Translating HighlyAvailable to %d replicas", replicas)
 	} else {
 		replicas = 1
-		logrus.Infof("  StatefulSet: No HA. Starting %t replica", replicas)
+		logrus.Infof("  StatefulSet: No HA. Starting %i replica", replicas)
 	}
 
 	logrus.Infof("  StatefulSet: Setting overall metrics retention to %s", retention)
@@ -391,7 +398,6 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 
 // serviceForPrometheus returns a PrometheusReplica service object
 func serviceForPrometheus(pr *v1alpha1.PrometheusReplica) *v1.Service {
-	//TODO: do we really need a function for this?
 	ls := labelsForPrometheusPods(pr.Name)
 
 	logrus.Infof("Creating Prometheus service for %s", pr.Name)
@@ -433,7 +439,6 @@ func serviceForPrometheus(pr *v1alpha1.PrometheusReplica) *v1.Service {
 
 // serviceForThanosPeers returns a PrometheusReplica service object
 func serviceForThanosPeers(pr *v1alpha1.PrometheusReplica) *v1.Service {
-	//TODO: do we really need a function for this?
 	ls := labelsForThanosPeers(pr.Name)
 
 	logrus.Infof("Creating Thanos peers service for %s", pr.Name)
@@ -583,7 +588,6 @@ func serviceForThanosStore(pr *v1alpha1.PrometheusReplica) *v1.Service {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-thanos-store", pr.Name),
 			Namespace: pr.Namespace,
-			//TODO: audit labels
 			Labels:    ls,
 		},
 		Spec: v1.ServiceSpec{
@@ -684,7 +688,6 @@ func serviceForThanosQuery(pr *v1alpha1.PrometheusReplica) *v1.Service {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%s-thanos-query", pr.Name),
 			Namespace: pr.Namespace,
-			//TODO: audit labels
 			Labels:    ls,
 		},
 		Spec: v1.ServiceSpec{
@@ -753,8 +756,6 @@ func filterPodList(labelQueries map[string]string, ns string) (map[string][]stri
 	podPhases := map[string]map[string]string{}
 
 	for group, query := range labelQueries {
-		//TODO: set more debug levels
-		//logrus.Infof("group: %s %s", group, query)
 
 		podList := podList()
 		listOps := &metav1.ListOptions{LabelSelector: query}
@@ -763,14 +764,9 @@ func filterPodList(labelQueries map[string]string, ns string) (map[string][]stri
 			return nil, nil, fmt.Errorf("Failed to list pods to filter: %v", err)
 		}
 
-		//podNames[group] = make([]string, 0)
 		podNames[group] = getPodNames(podList.Items)
 
-		//podPhases[group] = make(map[string]string)
-		podPhases[group] = getPodStatuses(podList.Items) //map[name]phase
-		//TODO: set more debug levels
-		//logrus.Infof("names: %s", podNames[group])
-		//logrus.Infof("statuses: %s", podPhases[group])
+		podPhases[group] = getPodStatuses(podList.Items)
 	}
 
 	return podNames, podPhases, nil
@@ -781,8 +777,6 @@ func filterServiceList(labelQueries map[string]string, ns string) (map[string][]
 	serviceNames := map[string][]string{}
 
 	for group, query := range labelQueries {
-		//TODO: set more debug levels
-		//logrus.Infof("group: %s %s", group, query)
 
 		serviceList := serviceList()
 		listOps := &metav1.ListOptions{LabelSelector: query}
@@ -791,8 +785,6 @@ func filterServiceList(labelQueries map[string]string, ns string) (map[string][]
 			return nil, fmt.Errorf("Failed to list services to filter: %v", err)
 		}
 		serviceNames[group] = getServiceNames(serviceList.Items)
-		//TODO: set more debug levels
-		//logrus.Infof("names: %s", serviceNames[group])
 	}
 
 	return serviceNames, nil
@@ -824,8 +816,6 @@ func podList() *v1.PodList {
 func getPodNames(pods []v1.Pod) []string {
 	var podNames []string
 	for _, pod := range pods {
-		//TODO: set more debug levels
-		//logrus.Infof("%s name: %v", pod.Name, pod.Status.Phase)
 		podNames = append(podNames, pod.Name)
 	}
 	return podNames
@@ -835,8 +825,6 @@ func getPodNames(pods []v1.Pod) []string {
 func getPodStatuses(pods []v1.Pod) map[string]string {
 	podStatuses := map[string]string{}
 	for _, pod := range pods {
-		//TODO: set more debug levels
-		//logrus.Infof("%s status: %v", pod.Name, pod.Status.Phase)
 		podStatuses[pod.Name] = string(pod.Status.Phase)
 	}
 	return podStatuses
