@@ -107,6 +107,8 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		// Update the PrometheusReplica status with the pod names
 		podStatus := make(map[string][]string)
 		svcStatus := make(map[string][]string)
+		podPhases := make(map[string]map[string]string)
+		globalStatus := "Creating"
 		logrus.Infof("Updating PrometheusReplica status for %s", PrometheusReplica.Name)
 
 		// Define Pod label queries
@@ -116,10 +118,66 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 			"stores": labels.SelectorFromSet(labelsForThanosStore(PrometheusReplica.Name)).String(),
 		}
 
-		// Execute Pod label queries
-		podStatus, err = filterPodList(filterLabelQueries, PrometheusReplica.Namespace)
+		// Execute Pod label queries and count statuses
+		podStatus, podPhases, err = filterPodList(filterLabelQueries, PrometheusReplica.Namespace)
 		if err != nil {
 			return fmt.Errorf("failed to list pods for local status: %v", err)
+		}
+		phases := map[string]bool{}
+		for group, _ := range podStatus {
+			
+			for _, podName := range podStatus[group] {
+				//TODO: set more debug levels
+				logrus.Infof("  Group %s: Pod %s is %v", group, podName, podPhases[group][podName])
+				
+				// built list of unqiue phases
+				phases[podPhases[group][podName]] = true				
+			}
+
+			//TODO: set more debug levels
+			if _, ok := phases["Pending"]; ok {
+				logrus.Infof("  Group %s has at least one pod pending", group);
+			} else if _, ok := phases["Failed"]; ok {
+				logrus.Infof("  Group %s has at least one pod failed", group);
+			} else if _, ok := phases["Unknown"]; ok {
+				logrus.Infof("  Group %s has at least one pod unknown", group);
+			} else if _, ok := phases["Running"]; ok {
+				logrus.Infof("  Group %s has at least one pod running", group);
+			} else {
+				logrus.Infof("  Group %s has at least one pod in an unrecognized state: %s", group);
+			}
+
+		}
+
+		if (phases["Pending"] == true || phases["Creating"] == true) && phases["Running"] && globalStatus != "Creating" {
+			logrus.Infof("Status of PrometheusReplica %s is now Creating", PrometheusReplica.Name)
+			globalStatus = "Creating"
+		} else if (phases["Failed"] == true || phases["Unknown"] == true) && globalStatus != "Error" {
+			logrus.Infof("Status of PrometheusReplica %s is now Error", PrometheusReplica.Name)
+			globalStatus = "Error"
+		} else if phases["Running"] && globalStatus != "Running" {
+			logrus.Infof("Status of PrometheusReplica %s is now Running", PrometheusReplica.Name)
+			globalStatus = "Running"
+		}
+		
+
+		//TODO: refactor when Ingresses are added
+		queryLocation := ""
+		if (len(svcStatus["query"]) != 0) {
+			queryLocation = fmt.Sprintf("%s.%s.svc.cluster.local", svcStatus["query"][0], PrometheusReplica.Namespace)
+		}
+		status := v1alpha1.PrometheusReplicaStatus{
+			//TODO: update after reading ready status
+			Phase: globalStatus,
+			Local: v1alpha1.PrometheusLocalStatus{
+				Prometheuses: podStatus["prometheuses"],
+				Stores: podStatus["stores"],
+				Queries: podStatus["queries"],
+			},
+			Output: v1alpha1.PrometheusOutputStatus{
+				Grafana: "not implemented yet",				
+				Query: queryLocation,
+			},
 		}
 
 		// Define Service label queries
@@ -133,23 +191,8 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 			return fmt.Errorf("failed to list services for output status: %v", err)
 		}
 
-		//TODO: refactor when Ingresses are added
-		status := v1alpha1.PrometheusReplicaStatus{
-			//TODO: update after reading ready status
-			Phase: "creating",
-			Local: v1alpha1.PrometheusLocalStatus{
-				Prometheuses: podStatus["prometheuses"],
-				Stores: podStatus["stores"],
-				Queries: podStatus["queries"],
-			},
-			Output: v1alpha1.PrometheusOutputStatus{
-				Grafana: "not implemented yet",				
-				Query: fmt.Sprintf("%s.%s.svc.cluster.local", svcStatus["query"][0], PrometheusReplica.Namespace),
-			},
-		}
-
 		// Update local status if anything has changed
-		if !reflect.DeepEqual(status, PrometheusReplica.Status.Local) {
+		if !reflect.DeepEqual(status, PrometheusReplica.Status) {
 
 			// Set local status
 			PrometheusReplica.Status = status
@@ -705,25 +748,32 @@ func addOwnerRefToObject(obj metav1.Object, ownerRef metav1.OwnerReference) {
 }
 
 // filterPodList returns an array of Pod names that match a label query
-func filterPodList(labelQueries map[string]string, ns string) (map[string][]string, error) {
+func filterPodList(labelQueries map[string]string, ns string) (map[string][]string, map[string]map[string]string, error) {
 	podNames := map[string][]string{}
+	podPhases := map[string]map[string]string{}
 
 	for group, query := range labelQueries {
 		//TODO: set more debug levels
-		logrus.Infof("group: %s %s", group, query)
+		//logrus.Infof("group: %s %s", group, query)
 
 		podList := podList()
 		listOps := &metav1.ListOptions{LabelSelector: query}
 		err := sdk.List(ns, podList, sdk.WithListOptions(listOps))
 		if err != nil {
-			return nil, fmt.Errorf("Failed to list pods to filter: %v", err)
+			return nil, nil, fmt.Errorf("Failed to list pods to filter: %v", err)
 		}
+
+		//podNames[group] = make([]string, 0)
 		podNames[group] = getPodNames(podList.Items)
+
+		//podPhases[group] = make(map[string]string)
+		podPhases[group] = getPodStatuses(podList.Items) //map[name]phase
 		//TODO: set more debug levels
-		logrus.Infof("names: %s", podNames[group])
+		//logrus.Infof("names: %s", podNames[group])
+		//logrus.Infof("statuses: %s", podPhases[group])
 	}
 
-	return podNames, nil
+	return podNames, podPhases, nil
 }
 
 // filterServiceList returns an array of Service names that match a label query
@@ -774,9 +824,22 @@ func podList() *v1.PodList {
 func getPodNames(pods []v1.Pod) []string {
 	var podNames []string
 	for _, pod := range pods {
+		//TODO: set more debug levels
+		//logrus.Infof("%s name: %v", pod.Name, pod.Status.Phase)
 		podNames = append(podNames, pod.Name)
 	}
 	return podNames
+}
+
+// getPodNames returns the pod names of the array of pods passed in
+func getPodStatuses(pods []v1.Pod) map[string]string {
+	podStatuses := map[string]string{}
+	for _, pod := range pods {
+		//TODO: set more debug levels
+		//logrus.Infof("%s status: %v", pod.Name, pod.Status.Phase)
+		podStatuses[pod.Name] = string(pod.Status.Phase)
+	}
+	return podStatuses
 }
 
 // serviceList returns a v1.PodList object

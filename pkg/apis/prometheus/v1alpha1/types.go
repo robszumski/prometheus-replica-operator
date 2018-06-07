@@ -42,7 +42,7 @@ type PrometheusMetricsSpec struct {
 type PrometheusReplicaStatus struct {
 	Phase string  `json:"phase"`
 	Output         PrometheusOutputStatus `json:"output,omitempty"`
-	Local         PrometheusLocalStatus `json:"local,omitempty"`
+	Local         PrometheusLocalStatus `json:"local,omitempty"` //TODO: should this be called 'services'? etcd does it this way
 }
 
 type PrometheusOutputStatus struct {
