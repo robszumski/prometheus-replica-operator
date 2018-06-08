@@ -151,6 +151,15 @@
 
 [[projects]]
   branch = "master"
+  name = "github.com/kylelemons/godebug"
+  packages = [
+    "diff",
+    "pretty"
+  ]
+  revision = "d65d576e9348f5982d7f6d83682b694e731a45c6"
+
+[[projects]]
+  branch = "master"
   name = "github.com/mailru/easyjson"
   packages = [
     "buffer",
@@ -415,6 +424,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0cd4354ca866d4bed3f076409d49ae7c0f63b9ff6b1695ec6f8570c2c9ff8815"
+  inputs-digest = "a17e769649abf347aaf669c4fbce1dcc1dc40592087f75b6c5030c57e5816d3c"
   solver-name = "gps-cdcl"
   solver-version = 1
