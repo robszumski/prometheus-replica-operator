@@ -15,6 +15,9 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"github.com/kylelemons/godebug/pretty"
+
+
 )
 
 func NewHandler() sdk.Handler {
@@ -28,6 +31,7 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 	switch o := event.Object.(type) {
 	case *v1alpha1.PrometheusReplica:
 		PrometheusReplica := o
+		var err error
 
 		// Ignore the delete event since the garbage collector will clean up all secondary resources for the CR
 		// All secondary resources must have the CR set as their OwnerReference for this to be the case
@@ -38,83 +42,14 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		// SANITY CHECK
 		logrus.Infof("Parsing PrometheusReplica %s in %s", PrometheusReplica.Name, PrometheusReplica.Namespace)
 
-        // INSTALL
-        var err error
-        // If anything needs to be created or updated, just blindly recreate everything
-        if(PrometheusReplica.Status.Phase == "Install" || PrometheusReplica.Status.Phase == "Repair" || PrometheusReplica.Status.Phase == "Update") {
-			// Create the Prometheus StatefulSet if it doesn't exist
-			ssProm := statefulSetForPrometheus(PrometheusReplica)
-			err = sdk.Create(ssProm)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Prometheus StatefulSet: %v", err)
-			}
-
-			//Create the Prometheus Service if it doesn't exist
-			svcProm := serviceForPrometheus(PrometheusReplica)
-			err = sdk.Create(svcProm)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Prometheus Service: %v", err)
-			}
-
-			//Create the Thanos peers Service if it doesn't exist
-			svcThanosPeers := serviceForThanosPeers(PrometheusReplica)
-			err = sdk.Create(svcThanosPeers)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Thanos peers Service: %v", err)
-			}
-
-			//Create the Thanos store StatefulSet if it doesn't exist
-			ssThanosStore := statefulSetForThanosStore(PrometheusReplica)
-			err = sdk.Create(ssThanosStore)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Thanos query StatefulSet: %v", err)
-			}
-
-			//Create the Thanos store Service if it doesn't exist
-			svcThanosStore := serviceForThanosStore(PrometheusReplica)
-			err = sdk.Create(svcThanosStore)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Thanos store Service: %v", err)
-			}
-
-			//Create the Thanos query Deployment if it doesn't exist
-			depThanosQuery := deploymentForThanosQuery(PrometheusReplica)
-			err = sdk.Create(depThanosQuery)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Thanos query Deployment: %v", err)
-			}
-
-			//Create the Thanos query Service if it doesn't exist
-			svcThanosQuery := serviceForThanosQuery(PrometheusReplica)
-			err = sdk.Create(svcThanosQuery)
-			if err != nil && !apierrors.IsAlreadyExists(err) {
-				return fmt.Errorf("failed to create Thanos query Service: %v", err)
-			}
-		}
-
-		// UPDATE
-		// Ensure the deployment size is the same as the spec
-		// err = sdk.Get(dep)
-		// if err != nil {
-		// 	return fmt.Errorf("failed to get deployment: %v", err)
-		// }
-		// size := PrometheusReplica.Spec.Size
-		// if *dep.Spec.Replicas != size {
-		// 	dep.Spec.Replicas = &size
-		// 	err = sdk.Update(dep)
-		// 	if err != nil {
-		// 		return fmt.Errorf("failed to update deployment: %v", err)
-		// 	}
-		// }
-
 		// STATUS
 		// Update the PrometheusReplica status with the pod names
+		logrus.Infof("Updating PrometheusReplica status for %s", PrometheusReplica.Name)
+
 		podStatus := make(map[string][]string)
 		svcStatus := make(map[string][]string)
 		podPhases := make(map[string]map[string]string)
 		globalStatus := ""
-
-		logrus.Infof("Updating PrometheusReplica status for %s", PrometheusReplica.Name)
 
 		globalStatus = PrometheusReplica.Status.Phase
 		if(globalStatus == "") {
@@ -214,8 +149,232 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 			logrus.Debugf("Status for PrometheusReplica %s did not change", PrometheusReplica.Name)
 		}
 
+        // INSTALL
+        // If anything needs to be created or updated, just blindly recreate everything
+        if(PrometheusReplica.Status.Phase == "Install" || PrometheusReplica.Status.Phase == "Repair") {
+			// Create the Prometheus StatefulSet if it doesn't exist
+			ssProm := statefulSetForPrometheus(PrometheusReplica)
+			err = sdk.Create(ssProm)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Prometheus StatefulSet: %v", err)
+			}
+
+			//Create the Prometheus Service if it doesn't exist
+			svcProm := serviceForPrometheus(PrometheusReplica)
+			err = sdk.Create(svcProm)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Prometheus Service: %v", err)
+			}
+
+			//Create the Thanos peers Service if it doesn't exist
+			svcThanosPeers := serviceForThanosPeers(PrometheusReplica)
+			err = sdk.Create(svcThanosPeers)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos peers Service: %v", err)
+			}
+
+			//Create the Thanos store StatefulSet if it doesn't exist
+			ssThanosStore := statefulSetForThanosStore(PrometheusReplica)
+			err = sdk.Create(ssThanosStore)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos query StatefulSet: %v", err)
+			}
+
+			//Create the Thanos store Service if it doesn't exist
+			svcThanosStore := serviceForThanosStore(PrometheusReplica)
+			err = sdk.Create(svcThanosStore)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos store Service: %v", err)
+			}
+
+			//Create the Thanos query Deployment if it doesn't exist
+			depThanosQuery := deploymentForThanosQuery(PrometheusReplica)
+			err = sdk.Create(depThanosQuery)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos query Deployment: %v", err)
+			}
+
+			//Create the Thanos query Service if it doesn't exist
+			svcThanosQuery := serviceForThanosQuery(PrometheusReplica)
+			err = sdk.Create(svcThanosQuery)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to create Thanos query Service: %v", err)
+			}
+		}
+
+		// UPDATE
+		// Compare the current and desired StatefulSet specs and update if needed
+		logrus.Infof("Checking desired vs actual state for components of PrometheusReplica %s", PrometheusReplica.Name)
+
+		// Contruct metadata of StatefulSet object to get
+		ssPromExisting := &appsv1.StatefulSet{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "apps/v1",
+				Kind:       "StatefulSet",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				//TODO: use function to return name so we can keep create and check functions in sync
+				Name:      fmt.Sprintf("%s-prometheus", PrometheusReplica.Name),
+				Namespace: PrometheusReplica.Namespace,
+			},
+		}
+
+		// Get current StatefulSet object
+		err = sdk.Get(ssPromExisting)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to get existing Prometheus StatefulSet: %v", err)
+		}
+
+		// Build desired StatefulSet object
+		ssPromDesired := statefulSetForPrometheus(PrometheusReplica)
+
+		// Compare the StatefulSet objects
+		ssNeedsUpdate, ssPromDesired := checkStatefulSetForPrometheus(PrometheusReplica, ssPromExisting, ssPromDesired)
+		if ssNeedsUpdate {
+			logrus.Infof("  StatefulSet for Prometheus needs to be updated")
+			err = sdk.Update(ssPromDesired)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to update Prometheus StatefulSet: %v", err)
+			}
+		}
+
+		// Contruct metadata of Deployment object to get
+		depQueryExisting := &appsv1.Deployment{
+			TypeMeta: metav1.TypeMeta{
+				APIVersion: "apps/v1",
+				Kind:       "Deployment",
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				//TODO: use function to return name so we can keep create and check functions in sync
+				Name:      fmt.Sprintf("%s-thanos-query", PrometheusReplica.Name),
+				Namespace: PrometheusReplica.Namespace,
+				Labels:    labelsForThanosQuery(PrometheusReplica.Name),
+			},
+		}
+
+		// Get current Deployment object
+		err = sdk.Get(depQueryExisting)
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return fmt.Errorf("failed to get existing Thanos query Deployment: %v", err)
+		}
+
+		// Build desired Deployment object
+		depQueryDesired := deploymentForThanosQuery(PrometheusReplica)
+
+		// Compare the Deployment objects
+		depNeedsUpdate, depQueryDesired := checkDeploymentForQuery(PrometheusReplica, depQueryExisting, depQueryDesired)
+		if depNeedsUpdate {
+			logrus.Infof("  Deployment for Thanos query needs to be updated")
+			err = sdk.Update(depQueryDesired)
+			if err != nil && !apierrors.IsAlreadyExists(err) {
+				return fmt.Errorf("failed to update Deployment for Thanos: %v", err)
+			}
+		}
+
 	}
 	return nil
+}
+
+// checkStatefulSetForPrometheus checks if certain attributes in the desired state are not reflected in the current cluster state
+// - check the total number of containers for when we add a new one
+// - check the labels as these are important for routing
+// - check the replica count
+// - check the container args where our duration and retention metrics are set
+//
+// Returns a boolean if the object needs to be updated and the desired PrometheusReplica StatefulSet object
+func checkStatefulSetForPrometheus(pr *v1alpha1.PrometheusReplica, ssPromExisting *appsv1.StatefulSet, ssPromDesired *appsv1.StatefulSet) (bool, *appsv1.StatefulSet) {
+	logrus.Infof("  Checking StatefulSet for Prometheus")
+	
+	// Check for the correct labels
+	if !reflect.DeepEqual(ssPromExisting.ObjectMeta.Labels, ssPromDesired.ObjectMeta.Labels) {
+		// TODO: move to debug
+		logrus.Debugf("  Prometheus does not contain the correct labels")
+		logrus.Debugf(pretty.Compare(ssPromExisting.ObjectMeta.Labels, ssPromDesired.ObjectMeta.Labels))
+		return true, ssPromDesired
+	} else {
+		// TODO: move to debug
+		logrus.Debugf("  Prometheus contains the correct correct labels")
+	}
+
+	// Check for the correct number of containers
+	if len(ssPromExisting.Spec.Template.Spec.Containers) != len(ssPromDesired.Spec.Template.Spec.Containers) {
+		// TODO: move to debug
+		logrus.Debugf("  Prometheus does not contain the correct number of containers")
+		return true, ssPromDesired
+	} else {
+		// TODO: move to debug
+		logrus.Debugf("  Prometheus contains the correct number of containers")
+	}
+
+	// Check the Prometheus StatefulSet args for each container
+	for i, container := range ssPromExisting.Spec.Template.Spec.Containers {
+		if !reflect.DeepEqual(ssPromExisting.Spec.Template.Spec.Containers[i].Args, ssPromDesired.Spec.Template.Spec.Containers[i].Args) {	
+			// TODO: move to debug
+			logrus.Debugf("  Arguments for %s do not match desired state", container.Name)
+			logrus.Debugf(pretty.Compare(ssPromExisting.Spec.Template.Spec.Containers[i].Args, ssPromDesired.Spec.Template.Spec.Containers[i].Args))
+			return true, ssPromDesired
+		} else {
+			// TODO: move to debug
+			logrus.Debugf("  Arguments for %s match desired state", container.Name)
+		}
+	}
+
+	// Check number of replicas on the Prometheus StatefulSet
+	if !reflect.DeepEqual(ssPromExisting.Spec.Replicas, ssPromDesired.Spec.Replicas) {
+		// TODO: move to debug
+		logrus.Debugf("  Prometheus does not contain the correct number of replicas")
+		logrus.Debugf(pretty.Compare(ssPromExisting.Spec.Replicas, ssPromDesired.Spec.Replicas))
+		return true, ssPromDesired
+	} else {
+		// TODO: move to debug
+		logrus.Debugf("  Prometheus contains the correct number of replicas")
+	}
+
+	return false, ssPromDesired
+}
+
+// checkDeploymentForQuery checks if certain attributes in the desired state are not reflected in the current cluster state
+// - check the total number of containers for when we add a new one
+// - check the labels as these are important for routing
+// - check the replica count
+//
+// Returns a boolean if the object needs to be updated and the desired PrometheusReplica Deployment object
+func checkDeploymentForQuery(pr *v1alpha1.PrometheusReplica, depQueryExisting *appsv1.Deployment, depQueryDesired *appsv1.Deployment) (bool, *appsv1.Deployment) {
+	logrus.Infof("  Checking Deployment for Thanos query")
+	
+	// Check for the correct labels
+	if !reflect.DeepEqual(depQueryExisting.ObjectMeta.Labels, depQueryDesired.ObjectMeta.Labels) {
+		// TODO: move to debug
+		logrus.Debugf("  Query does not contain the correct labels")
+		logrus.Debugf(pretty.Compare(depQueryExisting.ObjectMeta.Labels, depQueryDesired.ObjectMeta.Labels))
+		return true, depQueryDesired
+	} else {
+		// TODO: move to debug
+		logrus.Debugf("  Query contains the correct correct labels")
+	}
+
+	// Check for the correct number of containers
+	if len(depQueryExisting.Spec.Template.Spec.Containers) != len(depQueryDesired.Spec.Template.Spec.Containers) {
+		// TODO: move to debug
+		logrus.Debugf("  Query does not contain the correct number of containers")
+		return true, depQueryDesired
+	} else {
+		// TODO: move to debug
+		logrus.Debugf("  Query contains the correct number of containers")
+	}
+
+	// Check number of replicas on the Query Deployment
+	if !reflect.DeepEqual(depQueryExisting.Spec.Replicas, depQueryDesired.Spec.Replicas) {
+		// TODO: move to debug
+		logrus.Debugf("  Query does not contain the correct number of replicas")
+		logrus.Debugf(pretty.Compare(depQueryExisting.Spec.Replicas, depQueryDesired.Spec.Replicas))
+		return true, depQueryDesired
+	} else {
+		// TODO: move to debug
+		logrus.Debugf("  Query contains the correct number of replicas")
+	}
+
+	return false, depQueryDesired
 }
 
 // statefulSetForPrometheus returns a PrometheusReplica StatefulSet object
@@ -226,21 +385,29 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 	configMapName := pr.Spec.ConfigMap
 	secretName := pr.Spec.BucketSecret
 
-	logrus.Infof("Creating Prometheus StatefulSet for %s", pr.Name)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Prometheus StatefulSet for %s", pr.Name)
+	}
 
 	var replicas int32
 	if pr.Spec.HighlyAvailable {
 	    replicas = 2
-	    logrus.Infof("  StatefulSet: Translating HighlyAvailable to %d replicas", replicas)
+	    if(pr.Status.Phase == "Install") {
+		    logrus.Infof("  StatefulSet: Translating HighlyAvailable to %d replicas", replicas)
+		}
 	} else {
 		replicas = 1
-		logrus.Infof("  StatefulSet: No HA. Starting %i replica", replicas)
+		if(pr.Status.Phase == "Install") {
+			logrus.Infof("  StatefulSet: No HA. Starting %i replica", replicas)
+		}
 	}
 
-	logrus.Infof("  StatefulSet: Setting overall metrics retention to %s", retention)
-	logrus.Infof("  StatefulSet: Setting duration until upload to storage bucket to %s", blockDuration)
-	logrus.Infof("  StatefulSet: Using Prometheus config from ConfigMap %s", configMapName)
-	logrus.Infof("  StatefulSet: Using bucket parameters from Secret %s", secretName)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("  StatefulSet: Setting overall metrics retention to %s", retention)
+		logrus.Infof("  StatefulSet: Setting duration until upload to storage bucket to %s", blockDuration)
+		logrus.Infof("  StatefulSet: Using Prometheus config from ConfigMap %s", configMapName)
+		logrus.Infof("  StatefulSet: Using bucket parameters from Secret %s", secretName)
+	}
 
 	dep := &appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
@@ -400,7 +567,9 @@ func statefulSetForPrometheus(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulSe
 func serviceForPrometheus(pr *v1alpha1.PrometheusReplica) *v1.Service {
 	ls := labelsForPrometheusPods(pr.Name)
 
-	logrus.Infof("Creating Prometheus service for %s", pr.Name)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Prometheus service for %s", pr.Name)
+	}
 
 	svc := &v1.Service{
 		TypeMeta: metav1.TypeMeta{
@@ -441,7 +610,9 @@ func serviceForPrometheus(pr *v1alpha1.PrometheusReplica) *v1.Service {
 func serviceForThanosPeers(pr *v1alpha1.PrometheusReplica) *v1.Service {
 	ls := labelsForThanosPeers(pr.Name)
 
-	logrus.Infof("Creating Thanos peers service for %s", pr.Name)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Thanos peers service for %s", pr.Name)
+	}
 
 	svc := &v1.Service{
 		TypeMeta: metav1.TypeMeta{
@@ -479,8 +650,10 @@ func statefulSetForThanosStore(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulS
 	var replicas int32
 	replicas = 1
 
-	logrus.Infof("Creating Thanos store StatefulSet for %s", pr.Name)
-	logrus.Infof("  StatefulSet: Using bucket parameters from Secret %s", secretName)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Thanos store StatefulSet for %s", pr.Name)
+		logrus.Infof("  StatefulSet: Using bucket parameters from Secret %s", secretName)
+	}
 
 	ss := &appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
@@ -578,7 +751,9 @@ func statefulSetForThanosStore(pr *v1alpha1.PrometheusReplica) *appsv1.StatefulS
 func serviceForThanosStore(pr *v1alpha1.PrometheusReplica) *v1.Service {
 	ls := labelsForThanosStore(pr.Name)
 
-	logrus.Infof("Creating Thanos store service for %s", pr.Name)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Thanos store service for %s", pr.Name)
+	}
 
 	svc := &v1.Service{
 		TypeMeta: metav1.TypeMeta{
@@ -613,16 +788,22 @@ func deploymentForThanosQuery(pr *v1alpha1.PrometheusReplica) *appsv1.Deployment
 	ls := labelsForThanosQuery(pr.Name)
 	secretName := pr.Spec.BucketSecret
 
-	logrus.Infof("Creating Thanos query Deployment for %s", pr.Name)
-	logrus.Infof("  Deployment: Using bucket parameters from Secret %s", secretName)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Thanos query Deployment for %s", pr.Name)
+		logrus.Infof("  Deployment: Using bucket parameters from Secret %s", secretName)
+	}
 
 	var replicas int32
 	if pr.Spec.HighlyAvailable {
 	    replicas = 2
-	    logrus.Infof("  Deployment: Translating HighlyAvailable to %d replicas", replicas)
+	    if(pr.Status.Phase == "Install") {
+		    logrus.Infof("  Deployment: Translating HighlyAvailable to %d replicas", replicas)
+		}
 	} else {
 		replicas = 1
-		logrus.Infof("  Deployment: No HA. Starting %t replica", replicas)
+		if(pr.Status.Phase == "Install") {
+			logrus.Infof("  Deployment: No HA. Starting %t replica", replicas)
+		}
 	}
 
 	dep := &appsv1.Deployment{
@@ -678,7 +859,9 @@ func deploymentForThanosQuery(pr *v1alpha1.PrometheusReplica) *appsv1.Deployment
 func serviceForThanosQuery(pr *v1alpha1.PrometheusReplica) *v1.Service {
 	ls := labelsForThanosQuery(pr.Name)
 
-	logrus.Infof("Creating Thanos query service for %s", pr.Name)
+	if(pr.Status.Phase == "Install") {
+		logrus.Infof("Creating Thanos query service for %s", pr.Name)
+	}
 
 	svc := &v1.Service{
 		TypeMeta: metav1.TypeMeta{
