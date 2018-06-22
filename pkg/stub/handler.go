@@ -105,6 +105,17 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 		}
 		
 
+		// Define Service label queries
+		filterLabelQueries = map[string]string{
+			"grafana": labels.SelectorFromSet(labelsForGrafana(PrometheusReplica.Name)).String(),
+			"query": labels.SelectorFromSet(labelsForThanosQuery(PrometheusReplica.Name)).String(),
+		}
+
+		svcStatus, err = filterServiceList(filterLabelQueries, PrometheusReplica.Namespace)
+		if err != nil {
+			return fmt.Errorf("failed to list services for output status: %v", err)
+		}
+
 		//TODO: refactor when Ingresses are added
 		queryLocation := ""
 		if (len(svcStatus["query"]) != 0) {
@@ -121,17 +132,6 @@ func (h *Handler) Handle(ctx context.Context, event sdk.Event) error {
 				Grafana: "not implemented yet",				
 				Query: queryLocation,
 			},
-		}
-
-		// Define Service label queries
-		filterLabelQueries = map[string]string{
-			"grafana": labels.SelectorFromSet(labelsForGrafana(PrometheusReplica.Name)).String(),
-			"query": labels.SelectorFromSet(labelsForThanosQuery(PrometheusReplica.Name)).String(),
-		}
-
-		svcStatus, err = filterServiceList(filterLabelQueries, PrometheusReplica.Namespace)
-		if err != nil {
-			return fmt.Errorf("failed to list services for output status: %v", err)
 		}
 
 		// Update local status if anything has changed
