@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"runtime"
+	"os"
 
 	stub "github.com/robszumski/prometheus-replica-operator/pkg/stub"
 	sdk "github.com/operator-framework/operator-sdk/pkg/sdk"
@@ -20,6 +21,12 @@ func printVersion() {
 
 func main() {
 	printVersion()
+
+	// Read log verbosity
+	if (os.Getenv("PRO_LOGLEVEL") != "") {
+		logrus.SetLevel(logrus.DebugLevel)
+		logrus.Infof("Setting logging to %s", os.Getenv("PRO_LOGLEVEL"))
+	}
 
 	resource := "prometheus.robszumski.com/v1alpha1"
 	kind := "PrometheusReplica"
