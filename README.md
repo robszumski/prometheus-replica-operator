@@ -6,7 +6,9 @@ A Kubernetes Operator for Prometheus + Thanos, build on top of the [Operator SDK
 
 ## What the PRO does
 
-The PRO will install and configure a full monitoring stack on a Kubernetes cluster, using [Prometheus](https://prometheus.io/) for ingesting, storing and querying the time series data. Archival data is automatically sent to a cloud storage bucket with [Thanos(https://github.com/improbable-eng/thanos).
+The PRO will install and configure a full monitoring stack on a Kubernetes cluster, using [Prometheus](https://prometheus.io/) for ingesting, storing and querying the time series data. Archival data is automatically sent to a cloud storage bucket with [Thanos](https://github.com/improbable-eng/thanos).
+
+<img src="https://robszumski.com/building-an-operator/thanos-single-cluster.svg" alt="Prometheus and Thanos architecture." />
 
 ## Example
 
