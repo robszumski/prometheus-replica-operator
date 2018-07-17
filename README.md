@@ -91,19 +91,19 @@ INFO[0008]   Checking Deployment for Thanos query
 First, install the CRD:
 
 ```
-$ kubectl create -f http://todo:insert Github raw URL
+$ kubectl create -f https://raw.githubusercontent.com/robszumski/prometheus-replica-operator/master/deploy/crd.yaml
 ```
 
 Then run the Operator:
 
 ```
-$ kubectl create -f http://todo:insert Github raw URL
+$ kubectl create -f https://raw.githubusercontent.com/robszumski/prometheus-replica-operator/master/deploy/operator.yaml
 ```
 
 Last, create the `PrometheusReplica` object:
 
 ```
-$ kubectl create -f http://todo:insert Github raw URL
+$ kubectl create -f https://raw.githubusercontent.com/robszumski/prometheus-replica-operator/master/deploy/cr.yaml
 ```
 
 If everything worked correctly, you should see the Pods, Services, Deployments and StatefulSets created. The status of the `PrometheusReplica` should also have this information:
