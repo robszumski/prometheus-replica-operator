@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: prometheus-replica-operator
-          image: quay.io/robszumski/prometheus-replica-operator:latest
+          image: quay.io/robszumski/prometheus-replica-operator:v0.0.1
           command:
           - prometheus-replica-operator
           imagePullPolicy: Always
