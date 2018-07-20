@@ -109,5 +109,5 @@ $ kubectl create -f https://raw.githubusercontent.com/robszumski/prometheus-repl
 If everything worked correctly, you should see the Pods, Services, Deployments and StatefulSets created. The status of the `PrometheusReplica` should also have this information:
 
 ```
-$ kubectl get prometheusreplica/todo -o yaml
+$ kubectl -n default get prometheusreplica/example -o yaml
 ```
