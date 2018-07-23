@@ -1,5 +1,5 @@
 # Pull the rhel image from the local repository
-FROM registry.access.redhat.com/rhel7/rhel
+FROM registry.access.redhat.com/rhel-atomic
 MAINTAINER connect-tech@redhat.com
 
 # Add necessary Red Hat repos here
