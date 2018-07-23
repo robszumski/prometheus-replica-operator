@@ -1,6 +1,6 @@
 # Prometheus Replica Operator
 
-A Kubernetes Operator for Prometheus + Thanos, build on top of the [Operator SDK](https://github.com/coreos/operator-sdk).
+A Kubernetes Operator for Prometheus + Thanos, built on top of the [Operator SDK](https://github.com/coreos/operator-sdk).
 
 [This blog post shows how I built](https://robszumski.com/building-an-operator/) the Prometheus Replica Operator, which is the first complex Go program I’ve written. While the Go code itself may not be the best example of software engineering, I wanted to try out my team’s Operator SDK. As the Product Manager for the Operator SDK, I want to have first hand knowledge of our tool. As an early employee of CoreOS, I do have a lot of knowledge about Operators, and I want to pass on some best practices through the post.
 
@@ -109,5 +109,5 @@ $ kubectl create -f https://raw.githubusercontent.com/robszumski/prometheus-repl
 If everything worked correctly, you should see the Pods, Services, Deployments and StatefulSets created. The status of the `PrometheusReplica` should also have this information:
 
 ```
-$ kubectl get prometheusreplica/todo -o yaml
+$ kubectl -n default get prometheusreplica/example -o yaml
 ```
